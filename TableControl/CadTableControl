@@ -1,0 +1,323 @@
+*&---------------------------------------------------------------------*
+*& Report  ZAPAGAR
+*&
+*&---------------------------------------------------------------------*
+*&
+*&
+*&---------------------------------------------------------------------*
+
+REPORT  zapagar.
+
+
+TABLES: dimaiobpar, fkkop, tfk043v, ztesteapagar.
+
+DATA: wa_fkkop TYPE fkkop.
+DATA: wa_dimaiobpar TYPE dimaiobpar.
+
+data: TXT_OPER type char45,
+TXT_SUB  type char45,
+TXT_ADVER type char45.
+
+
+***&SPWIZARD: DATA DECLARATION FOR TABLECONTROL 'TC_TESTE'
+*&SPWIZARD: DEFINITION OF DDIC-TABLE
+
+*
+*TYPES: BEGIN OF ty_tc_teste,
+*  hvorg LIKE fkkop-hvorg,
+*  tvorg LIKE fkkop-tvorg,
+*  mahnv LIKE fkkop-mahnv, "regua de cobrança
+*  fkpro LIKE tfk043v-fkpro, "grupo de tolerancia
+*  pkey LIKE dimaiobpar-pkey, "plano de pagamentos
+*END OF ty_tc_teste.
+
+
+DATA: t_tc_teste TYPE TABLE OF ztesteapagar WITH HEADER LINE.
+DATA: wa_tc_teste LIKE LINE OF t_tc_teste.
+
+DATA: g_edit TYPE char01.
+
+CONTROLS: tc_ztesteapagar TYPE TABLEVIEW USING SCREEN 0100.
+
+
+INITIALIZATION.
+  CALL SCREEN 0100.
+
+*&---------------------------------------------------------------------*
+*&      Module  STATUS_0101  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE status_0100 OUTPUT.
+  SET PF-STATUS '0100'.
+  SET TITLEBAR '0100'.
+ENDMODULE.                 " STATUS_0101  OUTPUT
+*&---------------------------------------------------------------------*
+*&      Module  USER_COMMAND_0101  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE user_command_0100 INPUT.
+
+  CASE sy-ucomm.
+    WHEN 'BACK' OR 'EXIT' OR 'CANC'.
+      SET SCREEN 0.
+      LEAVE PROGRAM.
+    WHEN 'INSERE'.
+      g_edit = abap_false.
+      CALL SCREEN 0101 STARTING AT 10 10.
+      CALL SCREEN 0100.
+    WHEN 'EDIT'.
+      g_edit = abap_true.
+      PERFORM f_editar.
+      CALL SCREEN 0100.
+
+    WHEN 'DEL'.
+      PERFORM F_APAGAR.
+      call SCREEN 0100.
+    WHEN OTHERS.
+      SET SCREEN 0100. "Se não setar aqui, quando gira o scroll ele sai do programa
+  ENDCASE.
+
+
+ENDMODULE.                 " USER_COMMAND_0101  INPUT
+*&---------------------------------------------------------------------*
+*&      Module  GET_DATA_0100  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE get_data_0100 OUTPUT.
+
+  CLEAR t_tc_teste[].
+
+
+  SELECT *
+    INTO CORRESPONDING FIELDS OF TABLE t_tc_teste
+    FROM ztesteapagar.
+
+  SORT t_tc_teste.
+
+ENDMODULE.                 " GET_DATA_0100  OUTPUT
+*&---------------------------------------------------------------------*
+*&      Module  UPDATE_TABLE_CONTROL  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE update_table_control OUTPUT.
+  DESCRIBE TABLE t_tc_teste LINES tc_ztesteapagar-lines.
+ENDMODULE.                 " UPDATE_TABLE_CONTROL  OUTPUT
+*&---------------------------------------------------------------------*
+*&      Module  TRATA_CAMPOS_TC  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*module TRATA_CAMPOS_TC output.
+*LOOP AT SCREEN. "percorre todos os elementos de tela
+*
+*    "Bloqueamos todos os componentes de tela, menos o botão editar
+*    CASE screen-name.
+*      WHEN 'BT_EDIT'. "Quando for o botão de edição, deixa ativo...
+*      WHEN OTHERS. "os demais, fecha
+*        screen-input = 0. "poderia fazer isso tb pelo
+*    ENDCASE.
+*
+*    MODIFY SCREEN. "Comando para confirmar modif. da tela.
+*  ENDLOOP.
+*endmodule.                 " TRATA_CAMPOS_TC  OUTPUT
+*&---------------------------------------------------------------------*
+*&      Module  TRATA_CAMPOS_TC  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE trata_campos_tc OUTPUT.
+
+  "  Move os dados da estrutura interna pra dentro da estrutura que alimenta
+  " o Table control.
+  "move-corresponding st_zmara to zst_mara.
+  MOVE-CORRESPONDING wa_tc_teste TO ztesteapagar.
+
+ENDMODULE.                 " TRATA_CAMPOS_TC  OUTPUT
+*&---------------------------------------------------------------------*
+*&      Module  TESTE  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE teste OUTPUT.
+
+  PERFORM f_teste.
+
+ENDMODULE.                 " TESTE  OUTPUT
+*&---------------------------------------------------------------------*
+*&      Form  F_TESTE
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM f_teste .
+
+  SET SCREEN 0.
+
+ENDFORM.                    " F_TESTE
+*&---------------------------------------------------------------------*
+*&      Module  STATUS_0101  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE status_0101 OUTPUT.
+  DATA: l_tit TYPE char20.
+
+  "SET PF-STATUS '0101'.
+
+  PERFORM f_desabilita_campos.
+
+
+  IF g_edit = abap_true.
+    l_tit = 'Modificar'.
+    PERFORM f_get_data.
+  ELSE.
+    l_tit = 'Inserir'.
+    PERFORM f_limpar_tela.
+  ENDIF.
+  SET TITLEBAR l_tit.
+
+ENDMODULE.                 " STATUS_0101  OUTPUT
+*&---------------------------------------------------------------------*
+*&      Module  USER_COMMAND_0101  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE user_command_0101 INPUT.
+
+  CASE sy-ucomm.
+    WHEN 'SAVE' OR 'INOK'.
+      PERFORM f_gravar.
+    WHEN 'INCANC'.
+      SET SCREEN 0.
+      LEAVE SCREEN.
+    WHEN OTHERS.
+  ENDCASE.
+
+
+ENDMODULE.                 " USER_COMMAND_0101  INPUT
+*&---------------------------------------------------------------------*
+*&      Form  F_GRAVAR
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM f_gravar.
+
+  IF g_edit = abap_true.
+    MODIFY ztesteapagar FROM ztesteapagar.
+  ELSE.
+    INSERT ztesteapagar FROM ztesteapagar.
+  ENDIF.
+  IF sy-subrc IS NOT INITIAL.
+    MESSAGE e239(zfscd) DISPLAY LIKE 'E'.
+  ENDIF.
+
+  MESSAGE s033(zfscd).
+  g_edit = abap_false.
+
+  SET SCREEN 0.
+  LEAVE SCREEN.
+
+ENDFORM.                    " F_GRAVAR
+*&---------------------------------------------------------------------*
+*&      Form  F_EDITAR
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM f_editar.
+  DATA: l_line TYPE i.
+
+  "Busco a linha em que esta o cursor na table controle
+  "Existe tambem o get filed (campo) e o get value (valor)
+  GET CURSOR LINE l_line.
+
+  "Não me pergunte por que precisa fazer esse ajuste na linha do cursor...
+  l_line = l_line + tc_ztesteapagar-top_line - 1.
+
+  "Busco os dados da linha que o usuario está com o cursor e jogo na tela da inserção
+  CLEAR ztesteapagar.
+  READ TABLE t_tc_teste INTO ztesteapagar INDEX l_line.
+
+  g_edit = abap_true.
+
+  CALL SCREEN 0101 STARTING AT 10 10.
+
+ENDFORM.                    " F_EDITAR
+*&---------------------------------------------------------------------*
+*&      Form  F_DESABILITA_CAMPOS
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM f_desabilita_campos.
+
+  LOOP AT SCREEN. "percorre todos os elementos de tela
+
+    "Bloqueamos todos os componentes de tela, menos o botão editar
+    CASE screen-name.
+      WHEN 'ZTESTEAPAGAR-HVORG' OR 'ZTESTEAPAGAR-TVORG'.
+        IF g_edit = abap_true.
+          screen-input = 0.
+        ELSE.
+          screen-input = 1.
+        ENDIF.
+
+      WHEN 'TXT_OPER'.
+        TXT_OPER = 'teste1'.
+
+      WHEN OTHERS.
+    ENDCASE.
+
+    MODIFY SCREEN. "Comando para confirmar modif. da tela.
+  ENDLOOP.
+
+ENDFORM.                    " F_DESABILITA_CAMPOS
+*&---------------------------------------------------------------------*
+*&      Form  F_APAGAR
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+form F_APAGAR.
+
+DATA: l_line TYPE i.
+
+  "Busco a linha em que esta o cursor na table controle
+  "Existe tambem o get filed (campo) e o get value (valor)
+  GET CURSOR LINE l_line.
+
+  "Não me pergunte por que precisa fazer esse ajuste na linha do cursor...
+  l_line = l_line + tc_ztesteapagar-top_line - 1.
+
+  "Busco os dados da linha que o usuario está com o cursor e jogo na tela da inserção
+  CLEAR ztesteapagar.
+  READ TABLE t_tc_teste INTO ztesteapagar INDEX l_line.
+
+  DELETE ztesteapagar FROM ztesteapagar.
+
+endform.                    " F_APAGAR
+*&---------------------------------------------------------------------*
+*&      Form  F_GET_DATA
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+form F_GET_DATA.
+
+
+txt_oper = 'blabla'.
+
+endform.                    " F_GET_DATA
+*&---------------------------------------------------------------------*
+*&      Form  F_LIMPAR_TELA
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+form F_LIMPAR_TELA.
+
+CLEAR ZTESTEAPAGAR.
+CLEAR txt_oper.
+
+endform.                    " F_LIMPAR_TELA
