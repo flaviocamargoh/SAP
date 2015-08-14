@@ -1,0 +1,17 @@
+
+PROCESS BEFORE OUTPUT.
+
+  MODULE set_pf_status_0100.
+  MODULE update_table_control.
+
+  LOOP AT t_int_endereco INTO wa_int_endereco
+    WITH CONTROL tb_clientes
+    CURSOR tb_clientes-current_line.
+  ENDLOOP.
+
+PROCESS AFTER INPUT.
+
+  LOOP AT t_int_endereco.
+  ENDLOOP.
+
+  MODULE user_command0100.
