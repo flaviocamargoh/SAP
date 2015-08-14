@@ -1,0 +1,35 @@
+*&---------------------------------------------------------------------*
+*&  Include           ZPSFITSTFRC_TOP
+*&---------------------------------------------------------------------*
+
+TABLES: scarr. "Cria uma estrutura (wa). Sempre tem que declarar as tables seg. accenture
+
+
+DATA: t_zfrctst TYPE STANDARD TABLE OF zfrctst.
+DATA: t_scarr TYPE STANDARD TABLE OF scarr.
+DATA: t_scarr_alv TYPE STANDARD TABLE OF scarr.
+
+DATA: wa_zfrctst TYPE zfrctst.
+
+DATA: go_alv_container TYPE REF TO cl_gui_custom_container,
+      go_alv           TYPE REF TO cl_gui_alv_grid,
+      gs_layout        TYPE lvc_s_layo.
+
+
+DATA: go_container TYPE REF TO cl_gui_custom_container,
+      go_containerx TYPE REF TO cl_gui_custom_container,
+      go_html TYPE REF TO cl_gui_html_viewer,
+      go_htmlx TYPE REF TO cl_gui_html_viewer.
+
+DATA: gt_lhtml TYPE STANDARD TABLE OF w3html,
+      g_url TYPE char255.
+DATA  g_tela TYPE sy-dynnr VALUE '0001'. "aqui pode ser um char de 4 ou direto essa variavel
+
+DATA g_edit.
+
+DATA g_qtd TYPE i.
+DATA g_cp_qtd TYPE i.
+DATA  g_ultimo_cad TYPE char02.
+DATA: wa_scarr TYPE scarr.
+
+CONTROLS: tc_scarr TYPE TABLEVIEW USING SCREEN 0102.
