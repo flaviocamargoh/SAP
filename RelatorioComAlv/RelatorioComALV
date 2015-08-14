@@ -1,0 +1,331 @@
+*&---------------------------------------------------------------------*
+*& Report  ZTESTEFRC
+*&
+*&---------------------------------------------------------------------*
+*& Relatório de fatura conjugada
+*&---------------------------------------------------------------------*
+
+REPORT  ztestefrc.
+
+************************************************************************
+*Variaveis e types                                                     *
+************************************************************************
+INCLUDE ztestefrctop.
+
+************************************************************************
+*Tela                                                                  *
+************************************************************************
+INCLUDE ztestefrcscr.
+
+
+INITIALIZATION.
+  PERFORM f_inicializa_var.
+  PERFORM f_busca_tvarv.
+
+
+AT SELECTION-SCREEN.
+  IF s_vencto-low IS INITIAL.
+    MESSAGE s312(zfscd) DISPLAY LIKE 'E'.
+  ENDIF.
+  IF s_vencto-high IS INITIAL.
+    MESSAGE s313(zfscd) DISPLAY LIKE 'E'.
+  ENDIF.
+  IF s_vencto-high - s_vencto-low > 31.
+    MESSAGE s314(zfscd) WITH c_dias DISPLAY LIKE 'E'.
+  ENDIF.
+  IF p_maxreg > c_max_reg.
+    MESSAGE s289(zfscd) DISPLAY LIKE 'E'.
+  ENDIF.
+
+
+START-OF-SELECTION.
+  SELECT boleto bolext bosta budat ausfd nwbtr rwbtr
+  FROM dfkkboh AS a
+  INTO CORRESPONDING FIELDS OF TABLE t_dfkkboh
+  WHERE a~ausfd IN s_vencto
+    AND budat IN s_emis.
+  IF sy-subrc IS NOT INITIAL.
+    MESSAGE s108(zfscd) DISPLAY LIKE 'E'. "se colocar e108, ele da msg e sai da tela
+    LEAVE.
+  ENDIF.
+
+  SELECT boleto posit doc2r
+    FROM dfkkbop
+    INTO CORRESPONDING FIELDS OF TABLE t_dfkkbop
+    FOR ALL ENTRIES IN t_dfkkboh
+    WHERE dfkkbop~boleto = t_dfkkboh-boleto.
+  IF sy-subrc IS NOT INITIAL.
+    MESSAGE s108(zfscd) DISPLAY LIKE 'E'.
+    LEAVE.
+  ENDIF.
+
+  LOOP AT t_dfkkbop INTO wa_dfkkbop.
+    APPEND wa_dfkkbop-doc2r(12) TO t_docs.
+  ENDLOOP.
+  DELETE ADJACENT DUPLICATES FROM t_docs.
+
+  SELECT opbel emgpa bukrs vkont vtref gsber pygrp budat augbd faedn
+    INTO CORRESPONDING FIELDS OF TABLE t_dfkkop
+    FROM dfkkop
+    FOR ALL ENTRIES IN t_docs
+    WHERE opbel = t_docs-opbel
+    AND blart IN r_tip_fat
+    AND gsber IN s_susep
+    AND emgpa IN s_imob
+    AND pygrp IN s_agrup.
+
+  IF sy-subrc IS NOT INITIAL.
+    MESSAGE s108(zfscd) DISPLAY LIKE 'E'.
+    LEAVE.
+  ENDIF.
+
+  LOOP AT t_dfkkboh INTO wa_dfkkboh.
+
+    READ TABLE t_dfkkbop INTO wa_dfkkbop
+    WITH KEY boleto = wa_dfkkboh-boleto.
+    IF sy-subrc IS INITIAL.
+
+      READ TABLE t_dfkkop INTO wa_dfkkop
+      WITH KEY opbel = wa_dfkkbop-doc2r(12).
+      IF sy-subrc IS INITIAL.
+
+        MOVE:
+        wa_dfkkop-faedn     TO wa_relat-vencto       ,
+        wa_dfkkop-emgpa     TO wa_relat-parceiro_imob,
+        wa_dfkkop-bukrs     TO wa_relat-empresa      ,
+        wa_dfkkop-vkont     TO wa_relat-conta_contr  ,
+        wa_dfkkop-vtref     TO wa_relat-obj_seguro   ,
+        wa_dfkkop-gsber     TO wa_relat-susep        ,
+        wa_dfkkop-pygrp     TO wa_relat-agrup        ,
+        wa_dfkkboh-boleto   TO wa_relat-boleto       ,
+        wa_dfkkboh-bolext   TO wa_relat-boleto_ext   ,
+        wa_dfkkboh-bosta    TO wa_relat-status_bol   ,
+        wa_dfkkboh-budat    TO wa_relat-emis         ,
+        wa_dfkkboh-ausfd    TO wa_relat-vencto       ,
+        wa_dfkkboh-nwbtr    TO wa_relat-valor        ,
+        wa_dfkkboh-rwbtr    TO wa_relat-valor_pg     ,
+        wa_dfkkop-budat     TO wa_relat-data_pagto   ,"tem que confirmar no gap 023
+        wa_dfkkop-augbd     TO wa_relat-data_comp    ."tem que confirmar no gap 023
+
+        APPEND wa_relat TO t_relat.
+
+        IF sy-tabix >= p_maxreg.
+          EXIT.
+        ENDIF.
+
+      ENDIF.
+    ENDIF.
+  ENDLOOP.
+
+  CHECK t_relat[] IS NOT INITIAL.
+
+  PERFORM f_preencher_filendcat_confirm.
+  PERFORM f_mostrar_alv_report_result.
+
+
+*END-OF-SELECTION.
+*  PERFORM f_inicializa_var.
+
+*&---------------------------------------------------------------------*
+*& Inicialização de variáveis e tabelas internas
+*&---------------------------------------------------------------------*
+FORM f_inicializa_var .
+
+  CLEAR: t_dfkkboh,
+  t_dfkkop,
+  t_dfkkbop,
+  t_docs,
+  t_relat,
+  wa_entrada,
+  o_tvarv.
+
+ENDFORM.                    " INICIALIZA_VAR
+
+*&---------------------------------------------------------------------*
+*& Busca parametrizações na tvarv
+*&---------------------------------------------------------------------*
+FORM f_busca_tvarv.
+
+  CREATE OBJECT o_tvarv
+    EXPORTING
+      ip_name         = 'FIN.CR.E.063'
+      ip_show_message = 'X'.
+
+  IF o_tvarv IS BOUND.
+
+    CALL METHOD o_tvarv->get_const_range
+      EXPORTING
+        ip_name  = 'TIP_DOC'
+      IMPORTING
+        tp_range = r_tip_fat.
+
+  ENDIF.
+
+ENDFORM.                    " F_BUSCA_TVARV
+
+*&---------------------------------------------------------------------*
+*& Mostrar o ALV
+*&---------------------------------------------------------------------*
+FORM f_mostrar_alv_report_result .
+  DATA: wa_layout TYPE slis_layout_alv.
+
+  MOVE:
+  'X' TO wa_layout-colwidth_optimize,
+  'X' TO wa_layout-zebra.
+
+  CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY'
+    EXPORTING
+      is_layout     = wa_layout
+      it_fieldcat   = t_fieldcatalog[]
+    TABLES
+      t_outtab      = t_relat
+    EXCEPTIONS
+      program_error = 1
+      OTHERS        = 2.
+
+ENDFORM.                    " F_MOSTRAR_ALV_REPORT
+
+
+*&---------------------------------------------------------------------*
+*& Preencher o ALV
+*&---------------------------------------------------------------------*
+FORM f_preencher_filendcat_confirm.
+  DATA: wa_fieldcatalog TYPE slis_fieldcat_alv.
+
+  MOVE:
+      'T_RELAT'    TO wa_fieldcatalog-tabname, "Nome da tabela interna que será apresentada (maiusculo)
+      'PARCEIRO_IMOB'   TO wa_fieldcatalog-fieldname, "Nome da coluna (maiusculo)
+      text-003   TO wa_fieldcatalog-seltext_m, "Texto da coluna
+      15         TO wa_fieldcatalog-outputlen. "Largura da coluna
+
+  APPEND wa_fieldcatalog TO t_fieldcatalog.
+  CLEAR wa_fieldcatalog.
+
+  MOVE:
+    'T_RELAT'    TO wa_fieldcatalog-tabname,
+    'EMPRESA'   TO wa_fieldcatalog-fieldname,
+    text-004   TO wa_fieldcatalog-seltext_m,
+    15         TO wa_fieldcatalog-outputlen.
+
+  APPEND wa_fieldcatalog TO t_fieldcatalog.
+  CLEAR wa_fieldcatalog.
+
+  MOVE:
+    'T_RELAT'    TO wa_fieldcatalog-tabname,
+    'CONTA_CONTR'   TO wa_fieldcatalog-fieldname,
+    text-005   TO wa_fieldcatalog-seltext_m,
+    15         TO wa_fieldcatalog-outputlen.
+
+  APPEND wa_fieldcatalog TO t_fieldcatalog.
+  CLEAR wa_fieldcatalog.
+
+  MOVE:
+    'T_RELAT'    TO wa_fieldcatalog-tabname,
+    'OBJ_SEGURO'   TO wa_fieldcatalog-fieldname,
+    text-006   TO wa_fieldcatalog-seltext_m,
+    15         TO wa_fieldcatalog-outputlen.
+
+  APPEND wa_fieldcatalog TO t_fieldcatalog.
+  CLEAR wa_fieldcatalog.
+
+  MOVE:
+    'T_RELAT'    TO wa_fieldcatalog-tabname,
+    'SUSEP'   TO wa_fieldcatalog-fieldname,
+    text-007   TO wa_fieldcatalog-seltext_m,
+    15         TO wa_fieldcatalog-outputlen.
+
+  APPEND wa_fieldcatalog TO t_fieldcatalog.
+  CLEAR wa_fieldcatalog.
+
+  MOVE:
+    'T_RELAT'    TO wa_fieldcatalog-tabname,
+    'AGRUP'   TO wa_fieldcatalog-fieldname,
+    text-008   TO wa_fieldcatalog-seltext_m,
+    15         TO wa_fieldcatalog-outputlen.
+
+  APPEND wa_fieldcatalog TO t_fieldcatalog.
+  CLEAR wa_fieldcatalog.
+
+  MOVE:
+    'T_RELAT'    TO wa_fieldcatalog-tabname,
+    'BOLETO'   TO wa_fieldcatalog-fieldname,
+    text-009   TO wa_fieldcatalog-seltext_m,
+    15         TO wa_fieldcatalog-outputlen.
+
+  APPEND wa_fieldcatalog TO t_fieldcatalog.
+  CLEAR wa_fieldcatalog.
+
+  MOVE:
+    'T_RELAT'    TO wa_fieldcatalog-tabname,
+    'BOLETO_EXT'   TO wa_fieldcatalog-fieldname,
+    text-010   TO wa_fieldcatalog-seltext_m,
+    15         TO wa_fieldcatalog-outputlen.
+
+  APPEND wa_fieldcatalog TO t_fieldcatalog.
+  CLEAR wa_fieldcatalog.
+
+  MOVE:
+    'T_RELAT'    TO wa_fieldcatalog-tabname,
+    'STATUS_BOL'   TO wa_fieldcatalog-fieldname,
+    text-011   TO wa_fieldcatalog-seltext_m,
+    15         TO wa_fieldcatalog-outputlen.
+
+  APPEND wa_fieldcatalog TO t_fieldcatalog.
+  CLEAR wa_fieldcatalog.
+
+  MOVE:
+    'T_RELAT'    TO wa_fieldcatalog-tabname,
+    'EMIS'   TO wa_fieldcatalog-fieldname,
+    text-012   TO wa_fieldcatalog-seltext_m,
+    15         TO wa_fieldcatalog-outputlen.
+
+  APPEND wa_fieldcatalog TO t_fieldcatalog.
+  CLEAR wa_fieldcatalog.
+
+  MOVE:
+    'T_RELAT'    TO wa_fieldcatalog-tabname,
+    'VENCTO'   TO wa_fieldcatalog-fieldname,
+    text-013   TO wa_fieldcatalog-seltext_m,
+    15         TO wa_fieldcatalog-outputlen.
+
+  APPEND wa_fieldcatalog TO t_fieldcatalog.
+  CLEAR wa_fieldcatalog.
+
+  MOVE:
+    'T_RELAT'    TO wa_fieldcatalog-tabname,
+    'VALOR'   TO wa_fieldcatalog-fieldname,
+    text-014   TO wa_fieldcatalog-seltext_m,
+    15         TO wa_fieldcatalog-outputlen.
+
+  APPEND wa_fieldcatalog TO t_fieldcatalog.
+  CLEAR wa_fieldcatalog.
+
+  MOVE:
+    'T_RELAT'    TO wa_fieldcatalog-tabname,
+    'VALOR_PG'   TO wa_fieldcatalog-fieldname,
+    text-015   TO wa_fieldcatalog-seltext_m,
+    15         TO wa_fieldcatalog-outputlen.
+
+  APPEND wa_fieldcatalog TO t_fieldcatalog.
+  CLEAR wa_fieldcatalog.
+
+  MOVE:
+    'T_RELAT'    TO wa_fieldcatalog-tabname,
+    'DATA_PAGTO'   TO wa_fieldcatalog-fieldname,
+    text-016   TO wa_fieldcatalog-seltext_m,
+    15         TO wa_fieldcatalog-outputlen.
+
+  APPEND wa_fieldcatalog TO t_fieldcatalog.
+  CLEAR wa_fieldcatalog.
+
+
+  MOVE:
+    'T_RELAT'    TO wa_fieldcatalog-tabname,
+    'DATA_COMP'   TO wa_fieldcatalog-fieldname,
+    text-017   TO wa_fieldcatalog-seltext_m,
+    15         TO wa_fieldcatalog-outputlen.
+
+  APPEND wa_fieldcatalog TO t_fieldcatalog.
+  CLEAR wa_fieldcatalog.
+
+ENDFORM.                    "f_preencher_filendcat_confirm
