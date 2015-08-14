@@ -1,0 +1,13 @@
+
+PROCESS BEFORE OUTPUT.
+
+  MODULE status_0200. "Como é uma tela dialogo modal, ela
+  "aceita um PF_status, se não, assume o último setado
+
+MODULE get_cod_cia.
+
+
+
+PROCESS AFTER INPUT.
+
+ MODULE USER_COMMAND_0200.
