@@ -1,0 +1,19 @@
+*&---------------------------------------------------------------------*
+*&  Include           ZTESTEFRCSCR
+*&---------------------------------------------------------------------*
+
+"Não consigo colocar data atual como default... só aceita constante.
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE text-001.
+SELECT-OPTIONS: s_vencto FOR wa_entrada-vencto OBLIGATORY NO-EXTENSION DEFAULT '20120425' TO '20120525'.
+SELECTION-SCREEN END OF BLOCK b1.
+
+SELECTION-SCREEN SKIP. "Pula uma linha na tela.
+
+SELECTION-SCREEN BEGIN OF BLOCK b2 WITH FRAME TITLE text-002.
+SELECT-OPTIONS: s_imob FOR wa_entrada-imob,
+                s_susep FOR wa_entrada-susep NO INTERVALS,
+                s_emis FOR wa_entrada-emis NO-EXTENSION,
+                s_agrup FOR wa_entrada-agrup.
+SELECTION-SCREEN END OF BLOCK b2.
+
+PARAMETER p_maxreg LIKE wa_entrada-maxreg OBLIGATORY DEFAULT c_max_reg.
