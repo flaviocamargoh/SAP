@@ -1,0 +1,16 @@
+
+PROCESS BEFORE OUTPUT.
+
+  "Inicializo o ALV do relatório
+  MODULE start_alv_relat.
+
+  "Chamo a subtela do relatório...
+  CALL SUBSCREEN subtrel INCLUDING sy-cprog '9999'.
+
+
+PROCESS AFTER INPUT.
+
+  "Não sei pq, mas se não chamar a sobtela no pai, não faz o filtro...
+  CALL SUBSCREEN subtrel.
+
+  MODULE user_command_0103.
