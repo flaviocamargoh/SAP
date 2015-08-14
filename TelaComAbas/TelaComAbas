@@ -1,0 +1,48 @@
+*&---------------------------------------------------------------------*
+*& Report  ZAPAGAR3
+*&
+*&---------------------------------------------------------------------*
+*&Teste com abas
+*&
+*&---------------------------------------------------------------------*
+
+REPORT  zapagar3.
+
+
+TABLES: kna1.
+
+DATA: ucomm1 TYPE sy-ucomm,
+      ucomm2 TYPE sy-ucomm,
+      ucomm3 TYPE sy-ucomm.
+
+
+SELECTION-SCREEN BEGIN OF SCREEN 3010 AS SUBSCREEN.
+SELECT-OPTIONS: s_kunnr FOR kna1-kunnr,
+                s_land1 FOR kna1-land1,
+                s_ktokd FOR kna1-ktokd.
+SELECTION-SCREEN END OF SCREEN 3010.
+
+SELECTION-SCREEN BEGIN OF SCREEN 3020 AS SUBSCREEN.
+PARAMETERS: s_opt1 AS CHECKBOX,
+            s_opt2 AS CHECKBOX,
+            s_opt3 AS CHECKBOX.
+SELECTION-SCREEN END OF SCREEN 3020.
+
+SELECTION-SCREEN BEGIN OF SCREEN 3030 AS SUBSCREEN.
+PARAMETERS: p_file TYPE rlgrap-filename DEFAULT '/ficheiro.txt'.
+SELECTION-SCREEN END OF SCREEN 3030.
+
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE text-001.
+PARAMETERS: p_uname TYPE uname OBLIGATORY.
+SELECTION-SCREEN END OF BLOCK b1.
+
+SELECTION-SCREEN BEGIN OF TABBED BLOCK tabs FOR 3 LINES.
+SELECTION-SCREEN tab (15) tab1 USER-COMMAND ucomm1 DEFAULT SCREEN 3010.
+SELECTION-SCREEN tab (30) tab2 USER-COMMAND ucomm2 DEFAULT SCREEN 3020.
+SELECTION-SCREEN tab (15) tab3 USER-COMMAND ucomm3 DEFAULT SCREEN 3030.
+SELECTION-SCREEN END OF BLOCK tabs.
+
+INITIALIZATION.
+tab1 = 'Filtros'(t01).
+tab2 = 'Opções'(t02).
+tab3 = 'Ficheiro'(t03).
