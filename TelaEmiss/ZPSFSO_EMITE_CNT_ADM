@@ -1,0 +1,1282 @@
+**********************************************************************
+*                                                                    *
+*            ********************************************            *
+*            *                     >                    *            *
+*            *                PORTO SEGURO              *            *
+*            *        CONFIDENCIAL E PROPRIETÁRIO       *            *
+*            *       TODOS OS DIREITOS RESERVADOS       *            *
+*            ********************************************            *
+*                                                                    *
+**********************************************************************
+* NOME DO PROGRAMA    :                                              *
+* TÍTULO DO PROGRAMA  : Emissão contratos administrativos            *
+* DESCRIÇÃO           : Emissão contratos administrativos            *
+* PROGRAMADOR         : Flavio Camargo                               *
+* DATA                : 03/07/2015                                   *
+* REQUEST             :                                              *
+*--------------------------------------------------------------------*
+* HISTÓRICO DE MUDANÇAS:                                             *
+* MUD  DATA        AUTOR          REQUEST #    DESCRIÇÃO             *
+**********************************************************************
+
+REPORT  zpsfso_emite_cnt_adm.
+
+TABLES: t005u,
+        zpstfslogmancnt,
+        dfkkcoh,
+        dfkkbptaxnum,
+        but0id,
+        but000.
+
+TYPE-POOLS: vrm.
+TYPES:
+
+BEGIN OF ty_entrada,
+  taxnum      TYPE dfkkbptaxnum-taxnum   ,
+  taxtype     TYPE but0id-type           ,
+  first_name  TYPE but000-name_first     ,
+  last_name   TYPE but000-name_last      ,
+  street      TYPE addr2_data-street     ,
+  house_num1  TYPE addr2_data-house_num1 ,
+  strsuppl1   TYPE adrc-str_suppl1       ,
+  poste_code1 TYPE addr2_data-post_code1 ,
+  region      TYPE adrc-region           ,
+  city1       TYPE addr2_data-city1      ,
+  city2       TYPE addr2_data-city2      ,
+  tel_number  TYPE sza7_d0400-tel_number ,
+  mob_number  TYPE sza7_d0400-mob_number ,
+  tel_numbe2  TYPE sza11_0100-tel_number ,
+  smtp_addr   TYPE sza7_d0400-smtp_addr  ,
+
+  tipo_doc   TYPE ztiponegocio           ,
+  bukrs      TYPE fkkop-bukrs            ,
+  gsber      TYPE fkkop-gsber            ,
+  xblnr      TYPE fkkko-xblnr            ,
+  zsus       TYPE dimaiob-zsus           ,
+  prctr      TYPE fkkop-prctr            ,
+  optxt      TYPE fkkop-optxt            ,
+  qtd_parc   TYPE  n LENGTH 2            ,
+  vlr_tot    TYPE fkkop-betrw            ,
+  vcto_prim  TYPE fkkop-faedn            ,
+  vlr_prime  TYPE fkkop-betrw            ,
+END OF ty_entrada,
+
+BEGIN OF ty_config,
+  tipo_negocio       TYPE zpstfscfgcntadm-tipo_negocio ,
+  vktyp              TYPE zpstfscfgcntadm-vktyp        ,
+  togru              TYPE zpstfscfgcntadm-togru        ,
+  vertyp             TYPE zpstfscfgcntadm-vertyp       ,
+  fdgrp              TYPE zpstfscfgcntadm-fdgrp        ,
+  insobjecttyp       TYPE zpstfscfgcntadm-insobjecttyp ,
+  mvari              TYPE zpstfscfgcntadm-mvari        ,
+  ikey               TYPE zpstfscfgcntadm-ikey         ,
+  coprc              TYPE zpstfscfgcntadm-coprc        ,
+  hvorg              TYPE zpstfscfgcntadm-hvorg        ,
+  tvorg              TYPE zpstfscfgcntadm-tvorg        ,
+  zplncad            TYPE zzplan                       ,
+  zcodips            TYPE zzcodips                     ,
+  cotyp              TYPE zpstfscfgcntadm-cotyp        ,
+END OF ty_config,
+
+BEGIN OF ty_estados,
+  bland TYPE t005u-bland,
+  bezei TYPE t005u-bezei,
+END OF ty_estados,
+
+BEGIN OF ty_zpstfscfgcntadm,
+  tipo_negocio TYPE zpstfscfgcntadm-tipo_negocio,
+  nom_negocio  TYPE zpstfscfgcntadm-nom_negocio,
+  prctr        TYPE zpstfscfgcntadm-prctr,
+END OF ty_zpstfscfgcntadm,
+
+BEGIN OF ty_zpstfslogmancnt,
+  partner    TYPE zpstfslogmancnt-partner,
+  insobject  TYPE zpstfslogmancnt-insobject,
+  partneracc TYPE zpstfslogmancnt-partneracc,
+END OF ty_zpstfslogmancnt.
+
+DATA: wa_entrada        TYPE ty_entrada,
+      wa_config         TYPE ty_config ,
+      wa_list           TYPE vrm_value ,
+      e_header          TYPE zpssfsheader    ,
+      e_trailer         TYPE zpssfstrailer   ,
+      wa_dados_bp       TYPE zpssfsparceiro  ,
+      wa_dados_banc     TYPE zpssfsbancarios ,
+      wa_dados_end      TYPE zpssfsendereco  ,
+      wa_dados_cc       TYPE zpssfsctcontrato,
+      wa_dados_obj_seg  TYPE zpssfsobjseguro ,
+      wa_dados_lanc     TYPE zpssfsddslcto   ,
+      wa_zpstfsitfcmnin TYPE zpstfsitfcmnin  ,
+      wa_int_parceiro   TYPE zpssfsparceiro_11,
+      wa_int_endereco   TYPE zpssfsendereco_12.
+
+DATA: t_dados_bp        TYPE TABLE OF zpssfsparceiro  ,
+      t_dados_banc      TYPE TABLE OF zpssfsbancarios ,
+      t_dados_end       TYPE TABLE OF zpssfsendereco  ,
+      t_dados_cc        TYPE TABLE OF zpssfsctcontrato,
+      t_dados_obj_seg   TYPE TABLE OF zpssfsobjseguro ,
+      t_dados_lanc      TYPE TABLE OF zpssfsddslcto   ,
+      t_estados         TYPE TABLE OF ty_estados      ,
+      t_zpstfscfgcntadm TYPE TABLE OF ty_zpstfscfgcntadm,
+      t_entrada23       TYPE TABLE OF zpssfsinput WITH HEADER LINE,
+      t_int_parceiro    TYPE TABLE OF zpssfsparceiro_11,
+      t_int_endereco    TYPE TABLE OF zpssfsendereco_12,
+      t_itfcmnout       TYPE TABLE OF zpssfsitfcmnout,
+      t_zpstfsitfcmnin  TYPE zpstfsitfcmnin,
+      t_lanc_ret        TYPE zpstfsddslctoret,
+      t_mensagem        TYPE zpstfsmensagem,
+      t_list            TYPE vrm_values.
+
+DATA: v_numparc TYPE dfkkop-grkey,
+      v_vencto  TYPE dfkkop-faedn,
+      v_contr   TYPE zpssfsobjseguro-id_sist_ext.
+
+CONSTANTS: c_cnpj          TYPE ty_entrada-taxtype VALUE 'BR1'   ,    "cod. CNPJ
+           c_cpf           TYPE ty_entrada-taxtype VALUE 'BR2'   ,    "cod. CPF
+           c_rne           TYPE ty_entrada-taxtype VALUE 'FS0002',    "Registro estrangeiro
+           c_ini_contr     TYPE char04             VALUE '0001'  ,    "Prefixo inicial do contrato
+           c_sist_orig     TYPE char05             VALUE 'ADMIN' ,    "ID sistema origem
+           c_tipo_sol      TYPE char01             VALUE '1'     ,    "Tipo de solicitação
+           c_tipo_cf       TYPE char01             VALUE '5'     ,    "Tipo do contrato financeiro ADM
+           c_tipo_bp_nac   TYPE char04             VALUE '0001'  ,    "BP nacional
+           c_tipo_bp_est   TYPE char04             VALUE '0002'  ,    "BP estrangeiro
+           c_sexo          TYPE char01             VALUE '3'     ,    "Sexo não informado
+           c_tipo_doc      TYPE char02             VALUE '50'    ,    "Tipo de doc. prêmio
+           c_moeda         TYPE char03             VALUE 'BRL'   ,    "Real
+           c_frm_pgto_bol  TYPE char01             VALUE 'O'     ,    "Forma de pgto boleto registrado
+           c_tipo_imp_pdf  TYPE char01             VALUE '5'     ,    "Impressão PDF
+           c_tipo_imp_ps   TYPE char01             VALUE '8'     ,    "Post script
+           c_desc_cpf      TYPE char03             VALUE 'CPF'   ,    "CPF
+           c_desc_cnpj     TYPE char04             VALUE 'CNPJ'  ,    "CNPJ
+           c_desc_rne      TYPE char03             VALUE 'RNE'   ,    "RNE
+           c_ctg_bp_pf     TYPE char01             VALUE '1'     ,    "Pessoa física
+           c_ctg_bp_pj     TYPE char01             VALUE '2'     ,    "Pessoa Jurídica
+           c_br            TYPE char02             VALUE 'BR'    ,    "Brasil
+           c_masc          TYPE char9              VALUE 'MASCULINO', "ID masc.
+           c_fem           TYPE char08             VALUE 'FEMININO',  "ID fem.
+           c_frm_boleto    TYPE char01             VALUE 'B',         "Formulário Boleto
+           c_env_mail      TYPE char02             VALUE '01',        "Tipo de envio e-mail
+           c_erro_boleto   TYPE char01             VALUE 'B',         "Erro na emissão do boleto
+           c_mod_parc      TYPE char02             VALUE '11',        "Modalidade de dados do parceiro
+           c_mod_ende      TYPE char02             VALUE '12'.        "Modalidade de dados do endereço
+
+"Dados do cliente
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE text-001.
+PARAMETERS: p_taxtyp LIKE wa_entrada-taxtype AS LISTBOX VISIBLE LENGTH 8 OBLIGATORY,
+            p_taxnum  LIKE wa_entrada-taxnum        OBLIGATORY,
+            p_nome    LIKE wa_entrada-first_name    OBLIGATORY,
+            p_sobren  LIKE wa_entrada-last_name,
+            p_nasc    TYPE char10                   ,
+            p_endere  LIKE wa_entrada-street        OBLIGATORY,
+            p_numero  LIKE wa_entrada-house_num1    OBLIGATORY,
+            p_compl   LIKE wa_entrada-strsuppl1     OBLIGATORY,
+            p_cep     LIKE wa_entrada-poste_code1   OBLIGATORY,
+            p_estado  LIKE wa_entrada-region        OBLIGATORY,
+            p_cidade  LIKE wa_entrada-city1         OBLIGATORY,
+            p_bairro  LIKE wa_entrada-city2         OBLIGATORY,
+            p_telefo  LIKE wa_entrada-tel_number    OBLIGATORY,
+            p_celula  LIKE wa_entrada-mob_number ,
+            p_outros  LIKE wa_entrada-tel_number ,
+            p_email   LIKE wa_entrada-smtp_addr  .
+SELECTION-SCREEN END OF BLOCK b1.
+
+"Dados do contrato
+SELECTION-SCREEN BEGIN OF BLOCK b2 WITH FRAME TITLE text-002.
+PARAMETERS: p_tipoc  LIKE wa_entrada-tipo_doc OBLIGATORY,
+            p_emp    LIKE wa_entrada-bukrs    OBLIGATORY,
+            p_suc    LIKE wa_entrada-gsber    OBLIGATORY,
+            p_susep  LIKE wa_entrada-zsus,
+            p_ctluc  LIKE wa_entrada-prctr    OBLIGATORY,
+            p_observ LIKE wa_entrada-optxt.
+SELECTION-SCREEN END OF BLOCK b2.
+
+SELECTION-SCREEN BEGIN OF BLOCK b4 WITH FRAME TITLE text-004.
+PARAMETERS: p_qtdpar   LIKE wa_entrada-qtd_parc  OBLIGATORY DEFAULT '01' ,
+            p_vlrtot   LIKE wa_entrada-vlr_tot   OBLIGATORY,
+            p_vctpri   LIKE wa_entrada-vcto_prim OBLIGATORY.
+SELECTION-SCREEN END OF BLOCK b4.
+
+SELECTION-SCREEN BEGIN OF BLOCK b3 WITH FRAME TITLE text-003.
+PARAMETERS: r_impre RADIOBUTTON GROUP g1,
+            r_mail  RADIOBUTTON GROUP g1 DEFAULT 'X',
+            p_email2 LIKE wa_entrada-smtp_addr.
+SELECTION-SCREEN END OF BLOCK b3.
+
+CONTROLS: tb_clientes TYPE TABLEVIEW USING SCREEN 0100.
+
+
+"Inicialização de variaveis, combo e matchcodes
+
+INITIALIZATION.
+  PERFORM f_inicializa_var.
+  PERFORM f_monta_combos.
+  PERFORM f_monta_matchcodes.
+
+
+  "Validações
+
+AT SELECTION-SCREEN.
+  "Validações
+  IF p_qtdpar < 1.
+    MESSAGE s701(zfscd) WITH text-005 DISPLAY LIKE 'E'.
+    STOP.
+  ENDIF.
+
+  IF p_vlrtot IS INITIAL OR p_vlrtot <= 0.
+    MESSAGE s701(zfscd) WITH  text-006 DISPLAY LIKE 'E'.
+    STOP.
+  ENDIF.
+
+  IF p_vctpri < sy-datum.
+    MESSAGE s025(zfscd) WITH sy-datum DISPLAY LIKE 'E'.
+    STOP.
+  ENDIF.
+
+  IF p_taxtyp = c_cpf AND p_sobren IS INITIAL.
+    MESSAGE s701(zfscd) WITH text-007 DISPLAY LIKE 'E'.
+    STOP.
+  ENDIF.
+
+  IF r_mail = 'X' AND p_email2 IS INITIAL.
+    MESSAGE s701(zfscd) WITH  text-020 DISPLAY LIKE 'E'.
+    STOP.
+  ENDIF.
+
+  PERFORM f_valida_datanasc USING p_nasc.
+
+
+  "Matchcode para estados
+
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_estado.
+  PERFORM f_matchcode_tipoc TABLES t_estados
+                             USING 'BLAND'
+                                   text-008.
+
+  "Matchcode para tipo de contrato
+
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_tipoc.
+  PERFORM f_matchcode_tipoc TABLES t_zpstfscfgcntadm
+                            USING 'TIPO_NEGOCIO'
+                                  text-009.
+
+  "Matchcode para dados do cliente
+
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_taxnum.
+  PERFORM f_monta_matchcode_cli.
+
+  "Matchcode para o centro de lucro parametrizado
+
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_ctluc.
+  PERFORM f_matchcode_tipoc TABLES t_zpstfscfgcntadm
+                             USING 'PRCTR'
+                                   text-019.
+
+
+START-OF-SELECTION.
+
+  PERFORM f_busca_parametros.
+  PERFORM f_monta_header.
+  PERFORM f_monta_bp.
+  PERFORM f_monta_dados_banc.
+  PERFORM f_monta_dados_ender.
+  PERFORM f_monta_conta_contr.
+  PERFORM f_monta_objeto_seg.
+  PERFORM f_monta_dados_lanc.
+  PERFORM f_monta_trailer.
+  PERFORM f_emitir.
+  PERFORM f_mostrar_result_emis.
+
+
+END-OF-SELECTION.
+
+
+*&---------------------------------------------------------------------*
+*&      Form  F_BUSCA_PARAMETROS
+*&---------------------------------------------------------------------*
+* Busca os parâmetros para o tipo de contrato
+*----------------------------------------------------------------------*
+FORM f_busca_parametros .
+  DATA l_num TYPE char16.
+
+*  Buscando os parâmetros para emissão
+  SELECT SINGLE tipo_negocio
+         vktyp
+         togru
+         vertyp
+         fdgrp
+         insobjecttyp
+         mvari
+         ikey
+         coprc
+         hvorg
+         tvorg
+         zplncad
+         zcodips
+         cotyp
+  INTO wa_config
+  FROM zpstfscfgcntadm
+  WHERE tipo_negocio = p_tipoc.
+  IF sy-subrc IS NOT INITIAL.
+    MESSAGE s018(zfi) WITH text-010 DISPLAY LIKE 'E'.
+    STOP.
+  ENDIF.
+
+* Buscamos as numerações (transação snro)
+  CALL FUNCTION 'NUMBER_GET_NEXT'
+    EXPORTING
+      nr_range_nr             = 'PK'
+      object                  = 'Z_CNTADM'
+      quantity                = '1'
+      subobject               = ' '
+      toyear                  = '0000'
+      ignore_buffer           = ' '
+    IMPORTING
+      number                  = l_num
+    EXCEPTIONS
+      interval_not_found      = 1
+      number_range_not_intern = 2
+      object_not_found        = 3
+      quantity_is_0           = 4
+      quantity_is_not_1       = 5
+      interval_overflow       = 6
+      buffer_overflow         = 7
+      OTHERS                  = 8.
+
+  IF sy-subrc <> 0.
+    MESSAGE s018(zfi) WITH text-011 DISPLAY LIKE 'E'.
+    STOP.
+  ENDIF.
+
+  "Contrato terá sempre inicial 0001 e o sequencial
+  CLEAR v_contr.
+  CONCATENATE c_ini_contr l_num INTO v_contr.
+
+ENDFORM.                    " F_BUSCA_PARAMETROS
+*&---------------------------------------------------------------------*
+*&      Form  F_EMITIR
+*&---------------------------------------------------------------------*
+* Chamada gap 019
+*----------------------------------------------------------------------*
+FORM f_emitir .
+
+  CALL FUNCTION 'Z_PSFFS_CRIA_CONTRATO_FIN'
+    EXPORTING
+      i_header        = e_header
+      t_dados_bp      = t_dados_bp
+      t_dados_banc    = t_dados_banc
+      t_dados_end     = t_dados_end
+      t_dados_cc      = t_dados_cc
+      t_dados_obj_seg = t_dados_obj_seg
+      t_dados_lanc    = t_dados_lanc
+      i_trailer       = e_trailer
+    IMPORTING
+      t_lanc_ret      = t_lanc_ret
+      t_mensagem      = t_mensagem.
+
+ENDFORM.                    " F_EMITIR
+*&---------------------------------------------------------------------*
+*&      Form  F_MONTA_HEADER
+*&---------------------------------------------------------------------*
+*
+*----------------------------------------------------------------------*
+FORM f_monta_header .
+
+  e_header-tipo_reg    = 'A'.         "Fixo
+  e_header-sist_origem = c_sist_orig. "Domínio dos produtos
+  e_header-tipo_sol    = c_tipo_sol.  "1 = Criação do Contrato Financeiro
+  e_header-tipo_cf     = c_tipo_cf.   "5 = Contrato Administrativo
+  e_header-reemissao   = ''.          "'X' = Sim '' = Não
+  e_header-matricula   = sy-uname.
+  e_header-data_arq    = sy-datum.
+  e_header-hora_arq    = sy-uzeit.
+
+  e_trailer-qtd_reg = 1.
+
+ENDFORM.                    " F_MONTA_HEADER
+*&---------------------------------------------------------------------*
+*&      Form  F_MONTA_BP
+*&---------------------------------------------------------------------*
+*
+*----------------------------------------------------------------------*
+FORM f_monta_bp .
+
+  wa_dados_bp-tipo_reg     = 'C'.           "Fixo 'C'
+  wa_dados_bp-tipo_oldkey  = p_taxtyp.      "BR1, BR2, Etc...
+  wa_dados_bp-oldkey       = p_taxnum.      "Número do CPF, CNPJ, etc...
+  wa_dados_bp-tipo_bp      = c_tipo_bp_nac. "0001 - Nacional
+
+  IF p_taxtyp = c_cnpj.
+    wa_dados_bp-ctg_bp       = c_ctg_bp_pj. "Categoria - 1 pessoa física, 2 - jurídica
+    wa_dados_bp-nome_org1    = p_nome.      "Nome quando empresa
+    wa_dados_bp-nome_org2    = p_sobren.
+  ELSE.
+    wa_dados_bp-ctg_bp       = c_ctg_bp_pf.
+    wa_dados_bp-nome         = p_nome.
+    wa_dados_bp-sobrenome    = p_sobren.
+    IF p_taxtyp = c_rne.
+      wa_dados_bp-tipo_bp      = c_tipo_bp_est. "0002 - Estrangeiro
+    ENDIF.
+  ENDIF.
+
+  CASE wa_int_parceiro-zsex.         "1 = Feminino 2 = Masculino 3 = Desconhecido
+    WHEN c_masc.
+      wa_dados_bp-sexo = '2'.
+    WHEN c_fem.
+      wa_dados_bp-sexo = '1'.
+    WHEN OTHERS.
+      wa_dados_bp-sexo         = c_sexo.
+  ENDCASE.
+
+  REPLACE ALL OCCURRENCES OF '.' IN p_nasc WITH ''.
+  wa_dados_bp-data_nasc    = p_nasc.
+
+  APPEND wa_dados_bp TO t_dados_bp.
+
+  e_trailer-qtd_reg = e_trailer-qtd_reg + 1.
+
+ENDFORM.                    " F_MONTA_BP
+*&---------------------------------------------------------------------*
+*&      Form  F_MONTA_DADOS_BANC
+*&---------------------------------------------------------------------*
+*
+*----------------------------------------------------------------------*
+FORM f_monta_dados_banc .
+
+  "Não teremos ADC, então apenas incrementa a qtd registros
+  e_trailer-qtd_reg = e_trailer-qtd_reg + 1.
+
+ENDFORM.                    " F_MONTA_DADOS_BANC
+*&---------------------------------------------------------------------*
+*&      Form  F_MONTA_DADOS_ENDER
+*&---------------------------------------------------------------------*
+*
+*----------------------------------------------------------------------*
+FORM f_monta_dados_ender .
+
+  wa_dados_end-tipo_reg       = 'E'.      "Tipo de Registro ficxo E
+  wa_dados_end-tipo_oldkey    = p_taxtyp. "Tipo de Identificação
+  wa_dados_end-oldkey         = p_taxnum. "Número de Identificação
+  wa_dados_end-logradouro     = p_endere. "Logradouro
+  wa_dados_end-num_logradouro = p_numero. "N° do Logradouro
+  wa_dados_end-complemento    = p_compl.  "Complemento
+  wa_dados_end-cod_postal     = p_cep.    "Código Postal
+  wa_dados_end-cidade         = p_cidade. "Cidade
+  wa_dados_end-regiao         = p_estado. "Região (estado)
+  wa_dados_end-bairro         = p_bairro. "Bairro
+  wa_dados_end-tel_1          = p_telefo. "DDD+ Telefone 1 Ex.: 1199999999
+  wa_dados_end-extensao       = p_outros. "Extensão
+  wa_dados_end-tel_2          = p_celula. "DDD+ Telefone 2 Ex.: 1199999999
+  wa_dados_end-email          = p_email.  "E-mail
+
+  APPEND wa_dados_end TO t_dados_end.
+
+  e_trailer-qtd_reg = e_trailer-qtd_reg + 1.
+
+ENDFORM.                    " F_MONTA_DADOS_ENDER
+
+*&---------------------------------------------------------------------*
+*&      Form  F_MONTA_CONTA_CONTR
+*&---------------------------------------------------------------------*
+*
+*----------------------------------------------------------------------*
+FORM f_monta_conta_contr .
+
+  wa_dados_cc-tipo_reg           = 'F'.             "Tipo de Registro fixo F
+  wa_dados_cc-tipo_oldkey        = p_taxtyp.        "Tipo de Identificação
+  wa_dados_cc-oldkey             = p_taxnum.        "Número de Identificação
+  wa_dados_cc-categ_cc           = wa_config-vktyp. "Categoria Conta Contrato (AP328 3.13)
+  wa_dados_cc-grp_tolerancia     = wa_config-togru. "Grp.tolerância
+  wa_dados_cc-ctg_liquidacao     = wa_config-vertyp."Ctg.liquidação
+  wa_dados_cc-grp_prev_tesour    = wa_config-fdgrp. "Grp.prev.tesour (AP328 4.1)
+  wa_dados_cc-empresa            = p_emp.           "Empresa std.
+
+  APPEND wa_dados_cc TO t_dados_cc.
+
+  e_trailer-qtd_reg = e_trailer-qtd_reg + 1.
+
+ENDFORM.                    " F_MONTA_CONTA_CONTR
+*&---------------------------------------------------------------------*
+*&      Form  F_MONTA_OBJETO_SEG
+*&---------------------------------------------------------------------*
+*
+*----------------------------------------------------------------------*
+FORM f_monta_objeto_seg .
+  DATA: l_data_aux TYPE char10.
+
+
+
+  wa_dados_obj_seg-id_contrato         = v_contr.                "Origem+proposta (TESTE - RETIRAR)
+
+
+  wa_dados_obj_seg-tipo_reg            = 'G'.                    "Tipo de Registro fixo G
+  wa_dados_obj_seg-tipo_oldkey         = p_taxtyp.               "Tipo de Identificação
+  wa_dados_obj_seg-oldkey              = p_taxnum.               "Número de Identificação
+  wa_dados_obj_seg-categ_os            = wa_config-insobjecttyp. "Categoria Objeto Seguro (AP328 3.18)
+  wa_dados_obj_seg-id_sist_ext         = v_contr.                "ID sistema ext. (contrato 16 pos)
+  wa_dados_obj_seg-var_adv             = wa_config-mvari.        "Var.advert.
+  wa_dados_obj_seg-grp_prev_tesour     = wa_config-fdgrp.        "Grp.prev.tesour
+  wa_dados_obj_seg-chave_jur           = wa_config-ikey.         "Chave de juros
+  wa_dados_obj_seg-var_corresp         = wa_config-coprc.        "Var.corresp.
+
+  l_data_aux = sy-datum.
+  PERFORM f_formata_data CHANGING l_data_aux.
+  wa_dados_obj_seg-vig_de    = l_data_aux.                       "Vigência De
+
+  wa_dados_obj_seg-cod_corretor        = p_susep.                "Código do Corretor
+  wa_dados_obj_seg-plan_par            = wa_config-zplncad.      "Plano de parcelamento (AP328 3.27)
+
+  APPEND wa_dados_obj_seg TO t_dados_obj_seg.
+
+  e_trailer-qtd_reg = e_trailer-qtd_reg + 1.
+
+ENDFORM.                    " F_MONTA_OBJETO_SEG
+*&---------------------------------------------------------------------*
+*&      Form  F_MONTA_TRAILER
+*&---------------------------------------------------------------------*
+*
+*----------------------------------------------------------------------*
+FORM f_monta_trailer .
+
+  e_trailer-tipo_reg = 'Z'.
+*  e_trailer-qtd_reg = qtd.
+  e_trailer-vlr_total_cf = p_vlrtot.
+
+ENDFORM.                    " F_MONTA_TRAILER
+*&---------------------------------------------------------------------*
+*&      Form  F_MONTA_COMBOS
+*&---------------------------------------------------------------------*
+* Monta combobox para facilitar emissão
+*----------------------------------------------------------------------*
+FORM f_monta_combos .
+
+  wa_list-key = c_cpf.
+  wa_list-text = c_desc_cpf.
+  APPEND wa_list TO t_list.
+
+  wa_list-key = c_cnpj.
+  wa_list-text = c_desc_cnpj.
+  APPEND wa_list TO t_list.
+
+  wa_list-key = c_rne.
+  wa_list-text = c_desc_rne.
+  APPEND wa_list TO t_list.
+
+  CALL FUNCTION 'VRM_SET_VALUES'
+    EXPORTING
+      id              = 'p_taxtyp'
+      values          = t_list
+    EXCEPTIONS
+      id_illegal_name = 1
+      OTHERS          = 2.
+
+ENDFORM.                    " F_MONTA_COMBOS
+*&---------------------------------------------------------------------*
+*&      Form  F_MONTA_DADOS_LANC
+*&---------------------------------------------------------------------*
+*  Dados de lançamento de itens
+*----------------------------------------------------------------------*
+FORM f_monta_dados_lanc .
+  DATA: l_prim_vez TYPE char01,
+        l_montante TYPE dfkkop-betrw,
+        l_data_aux TYPE char10.
+
+  v_vencto = p_vctpri.
+  v_numparc = '001'.
+  l_prim_vez = abap_true.
+  l_montante = p_vlrtot / p_qtdpar.
+
+  DO p_qtdpar TIMES.
+
+    CLEAR wa_dados_lanc.
+
+    wa_dados_lanc-tipo_reg         = 'H'.               "Tipo de Registro fixo H
+
+    IF v_numparc = '001'.
+      v_vencto = p_vctpri.
+      PERFORM f_arredonda_parcela USING    l_montante
+                                  CHANGING wa_dados_lanc-montante
+                                           wa_dados_lanc-vlr_total_parc.
+    ELSE.
+      PERFORM f_busca_vctos CHANGING v_vencto.          "Data de Vencimento.
+      wa_dados_lanc-montante         = l_montante.      "Montante
+      wa_dados_lanc-vlr_total_parc   = l_montante.      "Valor total da parcela
+    ENDIF.
+
+    l_data_aux = v_vencto.
+    PERFORM f_formata_data CHANGING l_data_aux.
+    wa_dados_lanc-vcto = l_data_aux.
+
+    wa_dados_lanc-seq              = v_numparc.         "Sequencial da parcela
+    wa_dados_lanc-tipo_oldkey      = p_taxtyp.          "Tipo de Identificação
+    wa_dados_lanc-oldkey           = p_taxnum.          "Número de Identificação
+
+    l_data_aux = sy-datum.
+    PERFORM f_formata_data CHANGING l_data_aux.
+
+    wa_dados_lanc-data_doc         = l_data_aux.        "Data Documento
+    wa_dados_lanc-data_lcto        = l_data_aux.        "Data Lançamento
+    wa_dados_lanc-tipo_doc         = c_tipo_doc.        "Tipo de Documento (AP328 4.5) 50 = premio CONFIRMAR***
+    wa_dados_lanc-ref              = v_contr.           "Referência
+    wa_dados_lanc-sede             = p_estado.          "Sede do segurado
+    wa_dados_lanc-divisao          = p_suc.             "Divisão
+    wa_dados_lanc-op_princ         = wa_config-hvorg.   "Operação Principal
+    wa_dados_lanc-sub_op           = wa_config-tvorg.   "Sub-Operação
+    wa_dados_lanc-moeda            = c_moeda.           "Moeda
+    wa_dados_lanc-frm_pgto         = c_frm_pgto_bol.    "FrmPgto - O = boleto registrado
+    wa_dados_lanc-texto_livre      = p_observ.          "Texto
+    wa_dados_lanc-cod_imposto      = wa_config-zcodips. "Código do Imposto
+
+    IF r_mail = 'X'.
+      wa_dados_lanc-tipo_imp         = c_tipo_imp_pdf.  "Tipo de Impressão 5 = PDF
+      wa_dados_lanc-bol_online       = 'X'.             "Gera Boleto on-line
+    ELSE.
+      wa_dados_lanc-tipo_imp         = c_tipo_imp_ps.   "Tipo de Impressão 8 = PS
+      wa_dados_lanc-bol_online       = ''.              "Gera Boleto on-line
+    ENDIF.
+
+    wa_dados_lanc-c_lucro          = p_ctluc.           "Centro de lucro
+
+    APPEND wa_dados_lanc TO t_dados_lanc.
+    v_numparc = v_numparc + 1.
+    e_trailer-qtd_reg = e_trailer-qtd_reg + 1.
+
+  ENDDO.
+
+ENDFORM.                    " F_MONTA_DADOS_LANC
+*&---------------------------------------------------------------------*
+*&      Form  F_BUSCA_VCTOS
+*&---------------------------------------------------------------------*
+*  busca os vencimentos
+*----------------------------------------------------------------------*
+FORM f_busca_vctos  CHANGING v_vencto.
+
+  "Somo 1 mês no vencimento
+  CALL FUNCTION 'RP_CALC_DATE_IN_INTERVAL'
+    EXPORTING
+      date      = v_vencto
+      days      = 0
+      months    = 1
+      signum    = '+'
+      years     = 0
+    IMPORTING
+      calc_date = v_vencto.
+
+ENDFORM.                    " F_BUSCA_VCTOS
+*&---------------------------------------------------------------------*
+*&      Form  F_MOSTRAR_RESULT_EMIS
+*&---------------------------------------------------------------------*
+* Mostrar em tela o resultado da emissão (retorno gap 019)
+*----------------------------------------------------------------------*
+FORM f_mostrar_result_emis.
+  DATA: wa_mensagem LIKE LINE OF t_mensagem,
+        wa_lanc_ret LIKE LINE OF t_lanc_ret,
+        l_emitiu    TYPE char01.
+
+  l_emitiu = abap_false.
+  CLEAR wa_zpstfsitfcmnin.
+  SORT t_mensagem BY tipo.
+
+  LOOP AT t_mensagem INTO wa_mensagem.
+    IF wa_mensagem-tipo = 'S'.
+      l_emitiu = abap_true.
+    ENDIF.
+
+    WRITE: wa_mensagem-codigo.
+    WRITE: wa_mensagem-msg.
+    WRITE: /.
+  ENDLOOP.
+
+  IF l_emitiu = abap_false.
+    WRITE: '**********************************', /.
+    WRITE: text-012, /. "Contrato não foi emitido
+    WRITE: '**********************************', /.
+    STOP.
+  ENDIF.
+
+  IF r_mail = 'X'.
+    PERFORM f_envia_boletos.
+  ENDIF.
+
+  l_emitiu = abap_true.
+
+  LOOP AT t_mensagem INTO wa_mensagem WHERE tipo = c_erro_boleto. "Erro no envio do boleto
+    l_emitiu = abap_false.
+    WRITE: wa_mensagem-codigo, /.
+    WRITE: wa_mensagem-msg, /.
+    WRITE: /.
+  ENDLOOP.
+
+  IF l_emitiu = abap_false.
+    WRITE: '*********************************************************', /.
+    WRITE: text-013, /. "Contrato emitido porem BOLETOS NÃO FORAM ENVIADOS
+    WRITE: '*********************************************************', /.
+  ENDIF.
+
+  LOOP AT t_lanc_ret INTO wa_lanc_ret.
+
+    AT FIRST.
+      WRITE: text-014, /. "Dados de geração:
+    ENDAT.
+
+    WRITE: 'Número da parcela.................: ', wa_lanc_ret-num_parc  , /.
+    WRITE: 'Valor total da parcela............: ', wa_lanc_ret-vlr_total_parc, /.
+    WRITE: 'Vencimento........................: ', wa_lanc_ret-vcto    , /.
+    WRITE: 'Vencimento 1......................: ', wa_lanc_ret-vcto1  , / .
+    WRITE: 'Vencimento 2......................: ', wa_lanc_ret-vcto2  , / .
+    WRITE: 'ID Contrato gerado................: ', wa_lanc_ret-id_sist_ext  , /.
+    WRITE: 'Diretório/Nome do arquivo (boleto): ', wa_lanc_ret-dir   , /.
+
+  ENDLOOP.
+
+ENDFORM.                    " F_MOSTRAR_RESULT_EMIS
+*&---------------------------------------------------------------------*
+*&      Form  F_FORMATA_DATA
+*&---------------------------------------------------------------------*
+* Formata data de AAAAMMDD para DDMMAAAA
+*----------------------------------------------------------------------*
+FORM f_formata_data  CHANGING l_p_nasc.
+
+  CONCATENATE l_p_nasc+6(2) l_p_nasc+4(2) l_p_nasc(4) INTO l_p_nasc.
+
+ENDFORM.                    " F_FORMATA_DATA
+*&---------------------------------------------------------------------*
+*&      Form  F_MONTA_MATCHCODES
+*&---------------------------------------------------------------------*
+* Montar os matchcodes necessários
+*----------------------------------------------------------------------*
+FORM f_monta_matchcodes .
+
+  CLEAR t_estados.
+
+  SELECT bland bezei
+  FROM t005u
+  INTO CORRESPONDING FIELDS OF TABLE t_estados
+  WHERE land1 = c_br
+    AND spras = sy-langu.
+
+  CLEAR t_zpstfscfgcntadm.
+
+  SELECT DISTINCT tipo_negocio nom_negocio prctr
+    FROM zpstfscfgcntadm
+    INTO CORRESPONDING FIELDS OF TABLE t_zpstfscfgcntadm.
+
+ENDFORM.                    " F_MONTA_MATCHCODES
+
+*&---------------------------------------------------------------------*
+*&      Form  F_MATCHCODE_TIPOC
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM f_matchcode_tipoc TABLES t_tabela
+                       USING l_campo    TYPE any
+                             l_titulo   TYPE any.
+
+  CALL FUNCTION 'F4IF_INT_TABLE_VALUE_REQUEST'
+    EXPORTING
+      retfield        = l_campo
+      window_title    = l_titulo
+      dynpprog        = sy-repid
+      dynpnr          = sy-dynnr
+      dynprofield     = l_campo
+      value_org       = 'S'
+    TABLES
+      value_tab       = t_tabela
+    EXCEPTIONS
+      parameter_error = 1
+      no_values_found = 2
+      OTHERS          = 3.
+
+ENDFORM.                    " F_MATCHCODE_TIPOC
+*&---------------------------------------------------------------------*
+*&      Form  F_INICIALIZA_VAR
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM f_inicializa_var .
+
+  CLEAR: wa_entrada         ,
+          wa_config         ,
+          wa_list           ,
+          e_header          ,
+          e_trailer         ,
+          t_lanc_ret        ,
+          t_mensagem        ,
+          wa_dados_bp       ,
+          wa_dados_banc     ,
+          wa_dados_end      ,
+          wa_dados_cc       ,
+          wa_dados_obj_seg  ,
+          wa_dados_lanc     ,
+          v_numparc         ,
+          v_vencto          ,
+          t_dados_bp        ,
+          t_dados_banc      ,
+          t_dados_end       ,
+          t_dados_cc        ,
+          t_dados_obj_seg   ,
+          t_dados_lanc      ,
+          t_list            ,
+          t_estados         ,
+          t_zpstfscfgcntadm .
+
+  "Buscando parâmetros da Tvarv...
+
+
+
+
+ENDFORM.                    " F_INICIALIZA_VAR
+*&---------------------------------------------------------------------*
+*&      Form  F_ENVIA_BOLETOS
+*&---------------------------------------------------------------------*
+*       Envio dos boletos acionando o gap 338
+*----------------------------------------------------------------------*
+FORM f_envia_boletos .
+  DATA: wa_itfcmnout     LIKE LINE OF t_itfcmnout,
+        wa_mensagem      LIKE LINE OF t_mensagem.
+  DATA: t_arq            TYPE TABLE OF sza7_d0400-smtp_addr.
+
+  PERFORM f_busca_dados TABLES t_arq                      "Nome do Arquivo email
+                        CHANGING wa_itfcmnout-gpart       "Nº parceiro de negócios
+                                 wa_itfcmnout-vtref       "Identificação de um objeto de seguro
+                                 wa_itfcmnout-vkont       "Nº da conta de contrato
+                                 wa_itfcmnout-cokey.      "Chave de correspondência
+
+  READ TABLE t_mensagem INTO wa_mensagem WITH KEY tipo = c_erro_boleto.
+  CHECK sy-subrc IS NOT INITIAL.
+
+  CLEAR: t_itfcmnout, t_zpstfsitfcmnin.
+
+  LOOP AT t_arq INTO wa_itfcmnout-znomarqema.
+
+    wa_itfcmnout-ztipfmr     = c_frm_boleto.    "Tipo Formulário: B - boleto c - comunicado
+    wa_itfcmnout-zfrmenv     = c_env_mail.      "Forma de Envio: 01 - email 02 - sms - 03 correio
+    wa_itfcmnout-cotyp       = wa_config-cotyp. "Tipo de correspondência (Z013 carta boleto contr. adm) VERIFICAR...
+    wa_itfcmnout-vktyp       = wa_config-vktyp. "Categoria da conta de contrato
+
+    PERFORM f_busca_nom_arq CHANGING wa_itfcmnout-znomarqema. "Nome do Arquivo
+
+    "wa_itfcmnout-znomarqcoi = wa_itfcmnout-znomarqema.
+
+    wa_itfcmnout-zdstema     = p_email2.       "Endereço de e-mail
+    wa_itfcmnout-zastema     = text-015.       "Assunto (Email) VERIFICAR
+    wa_itfcmnout-ztxtema     = text-015.       "Texto do Email VERIFICAR
+
+    APPEND wa_itfcmnout TO t_itfcmnout.
+  ENDLOOP.
+
+  CALL FUNCTION 'ZPSFFS_ITFSRVCRPCMU' "LZPSFSG_EMISSAO_BOLETOF01
+    EXPORTING
+      it_comunicacao       = t_itfcmnout
+    IMPORTING
+      et_retorno           = t_zpstfsitfcmnin.
+
+ENDFORM.                    " F_ENVIA_BOLETOS
+*&---------------------------------------------------------------------*
+*&      Form  F_BUSCA_DADOS
+*&---------------------------------------------------------------------*
+* Busca demais dados para chamada do GAP 338 - envio do boleto
+*----------------------------------------------------------------------*
+FORM f_busca_dados  TABLES t_arq
+                    CHANGING l_wa_itfcmnout_gpart TYPE zpstfslogmancnt-partner
+                             l_wa_itfcmnout_vtref TYPE zpstfslogmancnt-insobject
+                             l_wa_itfcmnout_vkont TYPE zpstfslogmancnt-partneracc
+                             "l_wa_itfcmnout_znomarqema TYPE zpssfsitfcmnout-znomarqema
+
+                             l_wa_itfcmnout_cokey TYPE dfkkcoh-cokey.
+
+  DATA: wa_lanc_ret LIKE LINE OF t_lanc_ret,
+        wa_mensagem LIKE LINE OF t_mensagem,
+        wa_zpstfslogmancnt TYPE ty_zpstfslogmancnt.
+
+*  Buscando objeto de seguro
+  LOOP AT t_lanc_ret INTO wa_lanc_ret.
+    APPEND wa_lanc_ret-dir TO t_arq.
+  ENDLOOP.
+
+  IF wa_lanc_ret-id_sist_ext IS INITIAL.
+    wa_mensagem-codigo = '98'.
+    wa_mensagem-tipo = c_erro_boleto. "Erro emis boleto
+    wa_mensagem-msg = text-016. "Erro na recuperação do contrato emitido
+    APPEND wa_mensagem TO t_mensagem.
+    EXIT.
+  ENDIF.
+
+*  Buscando dados do log de criação do contrato
+  SELECT SINGLE partner
+                insobject
+                partneracc
+    FROM zpstfslogmancnt
+    INTO wa_zpstfslogmancnt
+    WHERE znum_contrato = wa_lanc_ret-id_sist_ext
+    AND zstatus = 'S' "Elimina os erros de criação
+    AND znum_contrato IS NOT NULL.
+  IF sy-subrc IS NOT INITIAL
+  OR wa_zpstfslogmancnt-partner IS INITIAL
+  OR wa_zpstfslogmancnt-insobject IS INITIAL
+  OR wa_zpstfslogmancnt-partneracc IS INITIAL.
+    wa_mensagem-codigo = '96'.
+    wa_mensagem-tipo = c_erro_boleto. "Erro emis boleto
+    wa_mensagem-msg = text-017. "Erro na recuperação dos dados de log de criação do contrato
+    APPEND wa_mensagem TO t_mensagem.
+    EXIT.
+  ENDIF.
+
+  l_wa_itfcmnout_gpart = wa_zpstfslogmancnt-partner.
+  l_wa_itfcmnout_vtref = wa_zpstfslogmancnt-insobject.
+  l_wa_itfcmnout_vkont = wa_zpstfslogmancnt-partneracc.
+
+*  Buscando a chave de correspondência
+  SELECT SINGLE cokey
+    FROM dfkkcoh
+    INTO l_wa_itfcmnout_cokey
+    WHERE gpart = wa_zpstfslogmancnt-partner
+      AND vkont = wa_zpstfslogmancnt-partneracc
+      AND cotyp = wa_config-cotyp
+      AND cdate = sy-datum
+      AND vtref = wa_zpstfslogmancnt-insobject.
+  IF sy-subrc IS NOT INITIAL OR l_wa_itfcmnout_cokey IS INITIAL.
+    wa_mensagem-codigo = '95'.
+    wa_mensagem-tipo = c_erro_boleto. "Erro emis boleto
+    wa_mensagem-msg = text-018. "Erro na recuperação da chave de correspondência
+    APPEND wa_mensagem TO t_mensagem.
+    EXIT.
+  ENDIF.
+
+ENDFORM.                    " F_BUACA_BP
+*&---------------------------------------------------------------------*
+*&      Form  F_FORMATA_DATA_COM_P
+*&---------------------------------------------------------------------*
+*       Formata a data de AAAAMMDD para DD.MM.AAAA
+*----------------------------------------------------------------------*
+FORM f_formata_data_com_p CHANGING l_l_nasc.
+
+  CONCATENATE l_l_nasc+6(2) l_l_nasc+4(2) l_l_nasc(4) INTO l_l_nasc SEPARATED BY '.'.
+
+ENDFORM.                    " F_FORMATA_DATA_COM_P
+*&---------------------------------------------------------------------*
+*&      Form  F_MONTA_MATCHCODE_CLI
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM f_monta_matchcode_cli.
+  DATA: t_dynpread  TYPE TABLE OF dynpread WITH HEADER LINE,
+        wa_dynpread TYPE dynpread,
+        l_partner   TYPE but0id-partner,
+        l_nasc      TYPE but000-birthdt,
+        l_num_end   TYPE i.
+
+  t_dynpread-fieldname = 'P_TAXNUM'.
+  APPEND t_dynpread.
+  t_dynpread-fieldname = 'P_TAXTYP'.
+  APPEND t_dynpread.
+
+  CALL FUNCTION 'DYNP_VALUES_READ'
+    EXPORTING
+      dyname     = sy-cprog
+      dynumb     = sy-dynnr
+    TABLES
+      dynpfields = t_dynpread.
+  IF sy-subrc <> 0.
+    EXIT.
+  ENDIF.
+
+  LOOP AT t_dynpread INTO wa_dynpread.
+
+    IF wa_dynpread-fieldname = 'P_TAXNUM'.
+      p_taxnum = wa_dynpread-fieldvalue.
+    ELSE.
+      p_taxtyp = wa_dynpread-fieldvalue.
+    ENDIF.
+
+  ENDLOOP.
+
+  IF p_taxtyp IS NOT INITIAL AND p_taxnum IS NOT INITIAL.
+
+    CLEAR: t_entrada23, t_int_parceiro, t_int_endereco, wa_int_parceiro, t_dynpread.
+
+    t_entrada23-type = p_taxtyp.
+    t_entrada23-taxnum = p_taxnum.
+    t_entrada23-tvorg = c_mod_parc.
+    APPEND t_entrada23.
+
+    CALL FUNCTION 'Z_PSFFSCNS_CNT_FIN'
+      EXPORTING
+        i_entrada      = t_entrada23
+      TABLES
+        t_int_parceiro = t_int_parceiro
+      EXCEPTIONS
+        e_erro         = 1
+        OTHERS         = 2.
+    IF sy-subrc <> 0 AND ( t_int_parceiro IS INITIAL AND t_int_endereco IS INITIAL ).
+      EXIT.
+    ENDIF.
+
+    CLEAR t_entrada23.
+    t_entrada23-type = p_taxtyp.
+    t_entrada23-taxnum = p_taxnum.
+    t_entrada23-tvorg = c_mod_ende.
+    APPEND t_entrada23.
+
+    CALL FUNCTION 'Z_PSFFSCNS_CNT_FIN'
+      EXPORTING
+        i_entrada      = t_entrada23
+      TABLES
+        t_int_endereco = t_int_endereco
+      EXCEPTIONS
+        e_erro         = 1
+        OTHERS         = 2.
+    IF sy-subrc <> 0 AND ( t_int_parceiro IS INITIAL AND t_int_endereco IS INITIAL ).
+      EXIT.
+    ENDIF.
+
+    DELETE ADJACENT DUPLICATES FROM t_int_endereco
+        COMPARING street house_num1 city1 region tel_number smtp_addr.
+
+    "Caso encontre mais de um endereço, abre popUp para o usuario escolher
+    CLEAR l_num_end.
+    DESCRIBE TABLE t_int_endereco LINES l_num_end.
+    IF l_num_end > 1.
+      PERFORM f_popup_ender.
+    ENDIF.
+
+    READ TABLE t_int_parceiro INTO wa_int_parceiro INDEX 1.
+    IF sy-subrc IS INITIAL.
+      t_dynpread-fieldname = 'P_NOME'.
+      IF p_taxtyp = c_cnpj.
+        t_dynpread-fieldvalue = wa_int_parceiro-znamorg1.
+      ELSE.
+        t_dynpread-fieldvalue = wa_int_parceiro-name_first.
+      ENDIF.
+      APPEND t_dynpread.
+
+      t_dynpread-fieldname = 'P_SOBREN'.
+      IF p_taxtyp = c_cnpj.
+        t_dynpread-fieldvalue = wa_int_parceiro-znamorg2.
+      ELSE.
+        t_dynpread-fieldvalue = wa_int_parceiro-name_last.
+      ENDIF.
+      APPEND t_dynpread.
+    ENDIF.
+
+    READ TABLE t_int_endereco INTO wa_int_endereco INDEX 1.
+    IF sy-subrc IS INITIAL.
+      t_dynpread-fieldname = 'P_ENDERE'.
+      t_dynpread-fieldvalue = wa_int_endereco-street.
+      APPEND t_dynpread.
+      t_dynpread-fieldname = 'P_NUMERO'.
+      t_dynpread-fieldvalue = wa_int_endereco-house_num1.
+      APPEND t_dynpread.
+      t_dynpread-fieldname = 'P_COMPL' .
+      t_dynpread-fieldvalue = wa_int_endereco-house_num2.
+      APPEND t_dynpread.
+      t_dynpread-fieldname = 'P_CEP'   .
+      t_dynpread-fieldvalue = wa_int_endereco-postcode1.
+      APPEND t_dynpread.
+      t_dynpread-fieldname = 'P_ESTADO'.
+      t_dynpread-fieldvalue = wa_int_endereco-region.
+      APPEND t_dynpread.
+      t_dynpread-fieldname = 'P_CIDADE'.
+      t_dynpread-fieldvalue = wa_int_endereco-city1.
+      APPEND t_dynpread.
+      t_dynpread-fieldname = 'P_BAIRRO'.
+      t_dynpread-fieldvalue = wa_int_endereco-city2.
+      APPEND t_dynpread.
+      t_dynpread-fieldname = 'P_TELEFO'.
+      t_dynpread-fieldvalue = wa_int_endereco-tel_number.
+      APPEND t_dynpread.
+      t_dynpread-fieldname = 'P_CELULA'.
+      t_dynpread-fieldvalue = wa_int_endereco-tel_number1.
+      APPEND t_dynpread.
+      t_dynpread-fieldname = 'P_OUTROS'.
+      t_dynpread-fieldvalue = wa_int_endereco-tel_extens.
+      APPEND t_dynpread.
+      t_dynpread-fieldname = 'P_EMAIL' .
+      t_dynpread-fieldvalue = wa_int_endereco-smtp_addr.
+      APPEND t_dynpread.
+    ENDIF.
+
+    IF p_taxtyp = c_cpf OR p_taxtyp = c_cnpj.
+
+*** Busca Nº do Parceiro utilizando o CPF ou CNPJ
+      SELECT SINGLE partner
+        INTO l_partner
+        FROM dfkkbptaxnum
+        WHERE taxtype = p_taxtyp
+        AND   taxnum  = p_taxnum.
+    ELSE.
+*** Busca Nº Parceiro utilizando o Passaporte ou RNE
+      SELECT SINGLE partner
+        INTO l_partner
+        FROM but0id
+        WHERE idnumber  = p_taxnum
+          AND type      = p_taxtyp.
+    ENDIF.
+    IF sy-subrc IS INITIAL AND p_taxtyp NE c_cnpj.
+      SELECT SINGLE birthdt
+        FROM but000
+        INTO l_nasc
+       WHERE partner = l_partner.
+      IF sy-subrc IS INITIAL.
+        p_nasc = l_nasc.
+        PERFORM f_formata_data_com_p CHANGING p_nasc.
+        t_dynpread-fieldname = 'P_NASC'.
+        t_dynpread-fieldvalue = p_nasc.
+        APPEND t_dynpread.
+      ENDIF.
+    ENDIF.
+
+    IF t_int_endereco IS NOT INITIAL OR t_int_parceiro IS NOT INITIAL.
+
+      CALL FUNCTION 'DYNP_VALUES_UPDATE'
+        EXPORTING
+          dyname     = sy-cprog
+          dynumb     = sy-dynnr
+        TABLES
+          dynpfields = t_dynpread.
+    ENDIF.
+
+  ENDIF.
+
+ENDFORM.                    " F_MONTA_MATCHCODE_CLI
+*&---------------------------------------------------------------------*
+*&      Form  F_POPUP_ENDER
+*&---------------------------------------------------------------------*
+*      PopUp para usuario escolher o endereço do cliente
+*----------------------------------------------------------------------*
+FORM f_popup_ender .
+
+  CALL SCREEN 0100 STARTING AT 10 10.
+
+ENDFORM.                    " F_POPUP_ENDER
+*&---------------------------------------------------------------------*
+*&      Module  UPDATE_TABLE_CONTROL  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE update_table_control OUTPUT.
+
+  DESCRIBE TABLE t_int_endereco LINES tb_clientes-lines.
+
+ENDMODULE.                 " UPDATE_TABLE_CONTROL  OUTPUT
+*&---------------------------------------------------------------------*
+*&      Module  SET_PF_STATUS_0100  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE set_pf_status_0100 OUTPUT.
+
+  SET PF-STATUS '0100'.
+  SET TITLEBAR 'Selecione um endereço'.
+
+ENDMODULE.                 " SET_PF_STATUS_0100  OUTPUT
+*&---------------------------------------------------------------------*
+*&      Module  USER_COMMAND0100  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE user_command0100 INPUT.
+
+  CASE sy-ucomm.
+    WHEN 'CANC'.
+      CLEAR t_int_endereco.
+      SET SCREEN 0.
+      LEAVE SCREEN.
+    WHEN 'BT_SEL'.
+      PERFORM f_seleciona_end.
+    WHEN OTHERS.
+  ENDCASE.
+
+ENDMODULE.                 " USER_COMMAND0100  INPUT
+*&---------------------------------------------------------------------*
+*&      Form  F_SELECIONA_END
+*&---------------------------------------------------------------------*
+* Evento de seleção do endereço do cliente
+*----------------------------------------------------------------------*
+FORM f_seleciona_end .
+  DATA: l_line TYPE i.
+
+  GET CURSOR LINE l_line.
+  l_line = l_line + tb_clientes-top_line - 1.
+
+  CLEAR wa_int_endereco.
+  READ TABLE t_int_endereco INTO wa_int_endereco INDEX l_line.
+
+  CLEAR t_int_endereco.
+  APPEND wa_int_endereco TO t_int_endereco.
+
+  SET SCREEN 0.
+  LEAVE SCREEN.
+
+ENDFORM.                    " F_SELECIONA_END
+*&---------------------------------------------------------------------*
+*&      Form  F_ARREDONDA_PARCELA
+*&---------------------------------------------------------------------*
+* Faz o arredondamento da primeira parcela para bater com o valor total do contrato
+*----------------------------------------------------------------------*
+FORM f_arredonda_parcela  USING    l_montante
+                          CHANGING l_wa_dados_lanc_montante
+                                   l_wa_dados_lanc_vlr_total_parc.
+  DATA: l_diferenca LIKE wa_entrada-vlr_tot,
+        l_tot_aux   LIKE wa_entrada-vlr_tot.
+
+  "Somo o valor fracionado de todas as parcelas
+  DO p_qtdpar TIMES.
+    l_tot_aux = l_tot_aux + l_montante.
+  ENDDO.
+
+  "Se for diferente do valor total do contrato, precisamos arredondar
+
+  IF l_tot_aux NE p_vlrtot.
+    "Diminuo a diferença da soma das parcelas da primeira parcela
+    l_diferenca = l_tot_aux - p_vlrtot.
+    l_wa_dados_lanc_montante = l_montante - l_diferenca.
+    l_wa_dados_lanc_vlr_total_parc = l_montante - l_diferenca.
+  ELSE.
+    l_wa_dados_lanc_montante = l_montante.
+    l_wa_dados_lanc_vlr_total_parc = l_montante.
+  ENDIF.
+
+ENDFORM.                    " F_ARREDONDA_PARCELA
+*&---------------------------------------------------------------------*
+*&      Form  F_BUSCA_NOM_ARQ
+*&---------------------------------------------------------------------*
+*  Retiro apenas o nome do arquivo para enviar para o GAP
+*----------------------------------------------------------------------*
+FORM f_busca_nom_arq  CHANGING l_wa_itfcmnout_znomarqcoi.
+
+  DATA: t_str TYPE TABLE OF zpssfsitfcmnout-znomarqcoi,
+        l_arq     TYPE zpssfsitfcmnout-znomarqcoi.
+
+  SPLIT l_wa_itfcmnout_znomarqcoi AT '\' INTO: TABLE t_str.
+  LOOP AT t_str INTO l_arq.
+    l_wa_itfcmnout_znomarqcoi = l_arq.
+  ENDLOOP.
+
+ENDFORM.                    " F_BUSCA_NOM_ARQ
+*&---------------------------------------------------------------------*
+*&      Form  F_VALIDA_DATANASC
+*&---------------------------------------------------------------------*
+* Como data nasc é um char, valido via função
+*----------------------------------------------------------------------*
+FORM f_valida_datanasc  USING l_p_nasc.
+  DATA: l_num_ocur TYPE i.
+
+  CHECK p_taxtyp = c_cpf OR p_taxtyp = c_rne.
+
+  IF l_p_nasc IS INITIAL.
+    MESSAGE s701(zfscd) WITH text-021 DISPLAY LIKE 'E'.
+    STOP.
+  ENDIF.
+
+  l_num_ocur = strlen( l_p_nasc ).
+  IF l_num_ocur NE 10.
+    MESSAGE s701(zfscd) WITH text-021 DISPLAY LIKE 'E'.
+    STOP.
+  ENDIF.
+
+  IF not ( l_p_nasc+2(1) = '.' and l_p_nasc+5(1) = '.').
+    MESSAGE s701(zfscd) WITH text-021 DISPLAY LIKE 'E'.
+    STOP.
+  ENDIF.
+
+ENDFORM.                    " F_VALIDA_DATANASC
