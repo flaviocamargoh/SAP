@@ -1,0 +1,15 @@
+
+PROCESS BEFORE OUTPUT. "executa antes da entrada da tela 0100
+
+  "Só utilizo MODULE em telas!!!
+  MODULE set_status. "Acerta os botões, menus e barra das telas...
+  MODULE start_html_menu. "Faria o HTML, mas não pude fazer...
+
+  "Chama efetivamente a tela 0100 como subscreen passando a
+  "tela g_tela = 0001 e o programa corrente (sy-cprog)
+  CALL SUBSCREEN subt1 INCLUDING sy-cprog g_tela.
+
+PROCESS AFTER INPUT. "executa na saída da tela 0100...
+
+  CALL SUBSCREEN subt1.
+  MODULE user_command. "Ações de comandos do usuário, botoes, etc..
