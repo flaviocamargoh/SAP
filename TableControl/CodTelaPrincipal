@@ -1,0 +1,30 @@
+PROCESS BEFORE OUTPUT.
+  MODULE status_0100.
+
+  "Buscando os dados para a tela de cadastro
+  MODULE get_data_0100.
+
+  "Aqui, atualizamos o numero de linhas do table control... para
+  "evitar o problema de atualização na tela, depois de um append na
+  "table control
+  MODULE update_table_control.
+
+  "Para que a tela funcione, é obrigatorio fazer o loop, se não não ativ
+  LOOP AT t_tc_teste "Tabela interna
+    INTO wa_tc_teste "Estrutura
+    WITH CONTROL tc_ztesteapagar "table control criado
+    CURSOR tc_ztesteapagar-current_line.
+
+    "Aqui vamos fazer controle dos campos do table control
+    MODULE trata_campos_tc.
+  ENDLOOP.
+
+  "Seta screen para 0...
+  MODULE teste.
+
+
+PROCESS AFTER INPUT.
+  LOOP AT t_tc_teste. "Tabela interna
+
+  ENDLOOP.
+  MODULE user_command_0100.
